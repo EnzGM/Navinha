@@ -1,42 +1,45 @@
 package com.meujogo.navinha.entidades;
 
 import com.badlogic.gdx.graphics.Texture;
+import com.badlogic.gdx.utils.Pool;
+import java.util.ArrayList;
 
 public class InimigoEspiral extends Inimigo {
 
-    private float angulo = 0;
-    private float raio = 60; // Tamanho do círculo da espiral
-    private float centroX;   // Ponto central X que vai descendo
-    private float centroY;   // Ponto central Y que vai descendo
+    private float tempo = 0;
+    private float centroX;
 
-    public InimigoEspiral() {}
-
-    public void init(Texture imagem, float x, float y, float atraso) {
-        // Inicializa imagem e tamanho reduzido da classe Inimigo
-        super.init(imagem, x, y);
-
-        this.velocidade = 90; // Velocidade de descida do centro
-        this.centroX = x;
-        this.centroY = y;
-        this.angulo = atraso;  // Ângulo inicial de cada um na fila
-        this.raio = 60;
+    public InimigoEspiral() {
+        super();
     }
 
     @Override
-    public void atualizar(float delta) {
-        // 1. O centro da rotação vai caindo pela tela
-        this.centroY -= this.velocidade * delta;
+    public void init(Texture imagem, float x, float y) {
+        super.init(imagem, x, y);
+        this.centroX = x; // Guarda a posição original para fazer o vai-e-vem
+    }
 
-        // 2. O ângulo roda constantemente
-        this.angulo += 4.0f * delta;
+    @Override
+    public void atualizar(float delta, ArrayList<TiroInimigo> listaTirosInimigos, Pool<TiroInimigo> poolTirosInimigos) {
+        if (!ativo) return;
 
-        // 3. Calcula a posição em volta do centro usando Cosseno (X) e Seno (Y)
-        this.x = centroX + (float) Math.cos(angulo) * raio;
-        this.y = centroY + (float) Math.sin(angulo) * raio;
+        tempo += delta;
 
-        // Desativa quando o centro passar do fundo da tela
-        if (this.centroY < -100) {
+        // Faz a nave descer continuamente pela tela
+        this.y -= 150f * delta;
+
+        // Aplica o movimento em senóide usando o centro original gravado no init
+        this.x = centroX + (float) Math.sin(tempo * 5f) * 100f;
+
+        // Desativa se passar do fundo da tela
+        if (this.y < -50) {
             this.ativo = false;
         }
+    }
+
+    @Override
+    public void reset() {
+        super.reset();
+        tempo = 0;
     }
 }

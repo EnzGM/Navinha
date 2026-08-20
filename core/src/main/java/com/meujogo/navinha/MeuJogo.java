@@ -3,282 +3,250 @@ package com.meujogo.navinha;
 import com.badlogic.gdx.ApplicationAdapter;
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Input;
+import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.GL20;
+import com.badlogic.gdx.graphics.Pixmap;
 import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
+import com.badlogic.gdx.math.MathUtils;
 import com.badlogic.gdx.utils.Pool;
-import com.meujogo.navinha.entidades.*;
-
 import java.util.ArrayList;
 import java.util.Iterator;
+
+import com.meujogo.navinha.entidades.*;
 
 public class MeuJogo extends ApplicationAdapter {
 
     private SpriteBatch batch;
-    private Texture imgFundo;
+    private BitmapFont font;
+
+    // Texturas Principais
     private Texture imgNave;
     private Texture imgInimigo;
     private Texture imgInimigoAtirador;
 
-    private BitmapFont font;
+    // Texturas Procedurais
+    private Texture imgTiro;
+    private Texture imgTiroInimigo;
+    private Texture imgTiroHoming;
+    private Texture imgFundoHud;
+    private Texture imgLinhaHud;
+
+    // Entidade Principal
     private Nave jogador;
 
-    private ArrayList<Inimigo> listaInimigos;
+    // Listas do Jogo
     private ArrayList<Tiro> listaTiros;
     private ArrayList<TiroInimigo> listaTirosInimigos;
+    private ArrayList<TiroHoming> listaTirosHoming;
+    private ArrayList<Inimigo> listaInimigos;
     private ArrayList<ItemPowerUp> listaPowerUps;
 
-    // Pools de objetos para otimização de memória
+    // Pools de Otimização
+    private Pool<Tiro> poolTiros;
+    private Pool<TiroInimigo> poolTirosInimigos;
+    private Pool<TiroHoming> poolTirosHoming;
     private Pool<Inimigo> poolInimigos;
     private Pool<InimigoAtirador> poolAtiradores;
     private Pool<InimigoEspiral> poolEspiral;
-    private Pool<Tiro> poolTiros;
-    private Pool<TiroInimigo> poolTirosInimigos;
+    private Pool<InimigoTank> poolTanks;
+    private Pool<BossAtirador> poolBossAtirador;
+    private Pool<BossInvocador> poolBossInvocador;
+    private Pool<Minion> poolMinions;
     private Pool<ItemPowerUp> poolPowerUps;
 
-    // Chance de um inimigo abatido soltar um power-up (18%)
-    private static final float CHANCE_DROP_POWERUP = 0.18f;
-
-    // Controle de tempo, estado e Game Over
-    private float tempoParaAtirar = 0;
+    // Variáveis de Controle
     private int pontuacao = 0;
     private int ondaAtual = 1;
+    private float tempoTiro = 0;
+    private float intervaloTiro = 0.3f;
+    private int tirosRajada = 0;
 
-    // === NOVO: Estado atual do jogo (substitui o "boolean gameOver") ===
-    private EstadoJogo estado = EstadoJogo.MENU;
+    // Controle de movimento estilo Space Invaders
+    private float direcaoInimigosX = 1f; // 1 = Direita, -1 = Esquerda
 
-    // Controle da rajada (Burst)
-    private int tirosRestantesRajada = 0;
-    private float tempoProximoTiroRajada = 0;
+    public enum EstadoJogo { JOGANDO, GAME_OVER }
+    private EstadoJogo estado;
 
     @Override
     public void create() {
         batch = new SpriteBatch();
-
         font = new BitmapFont();
         font.getData().setScale(1.2f);
+        estado = EstadoJogo.JOGANDO;
 
-        // Carregamento de Texturas
-        imgFundo = new Texture("fundo.png");
         imgNave = new Texture("nave.png");
         imgInimigo = new Texture("inimigo.png");
+        // Sprite próprio para o InimigoAtirador e para o BossAtirador (fase 5).
+        // Lembre de colocar o arquivo "inimigo_atirador.png" dentro da pasta assets/ do projeto.
         imgInimigoAtirador = new Texture("inimigo_atirador.png");
 
-        // Criar Jogador
-        float startX = Gdx.graphics.getWidth() / 2f - (imgNave.getWidth() / 4f);
-        float startY = 30;
-        jogador = new Nave(imgNave, startX, startY);
+        imgTiro = criarTexturaColorida(Color.CYAN, 1, 1);
+        imgTiroInimigo = criarTexturaColorida(Color.ORANGE, 1, 1);
+        imgTiroHoming = criarTexturaColorida(Color.MAGENTA, 1, 1);
 
-        // Listas de Entidades Visíveis
-        listaInimigos = new ArrayList<>();
+        imgFundoHud = criarTexturaColorida(new Color(0.05f, 0.05f, 0.12f, 0.85f), 1, 1);
+        imgLinhaHud = criarTexturaColorida(new Color(0.0f, 0.8f, 1.0f, 1.0f), 1, 1);
+
+        jogador = new Nave(imgNave, Gdx.graphics.getWidth() / 2f - imgNave.getWidth() / 4f, 50);
+
         listaTiros = new ArrayList<>();
         listaTirosInimigos = new ArrayList<>();
+        listaTirosHoming = new ArrayList<>();
+        listaInimigos = new ArrayList<>();
         listaPowerUps = new ArrayList<>();
 
-        // Inicialização dos Pools
-        poolInimigos = new Pool<Inimigo>() {
-            @Override
-            protected Inimigo newObject() {
-                return new Inimigo();
-            }
-        };
+        poolTiros = new Pool<Tiro>() { @Override protected Tiro newObject() { return new Tiro(); } };
+        poolTirosInimigos = new Pool<TiroInimigo>() { @Override protected TiroInimigo newObject() { return new TiroInimigo(); } };
+        poolTirosHoming = new Pool<TiroHoming>() { @Override protected TiroHoming newObject() { return new TiroHoming(); } };
+        poolPowerUps = new Pool<ItemPowerUp>() { @Override protected ItemPowerUp newObject() { return new ItemPowerUp(); } };
+        poolInimigos = new Pool<Inimigo>() { @Override protected Inimigo newObject() { return new Inimigo(); } };
+        poolAtiradores = new Pool<InimigoAtirador>() { @Override protected InimigoAtirador newObject() { return new InimigoAtirador(); } };
+        poolEspiral = new Pool<InimigoEspiral>() { @Override protected InimigoEspiral newObject() { return new InimigoEspiral(); } };
+        poolTanks = new Pool<InimigoTank>() { @Override protected InimigoTank newObject() { return new InimigoTank(); } };
+        poolBossAtirador = new Pool<BossAtirador>() { @Override protected BossAtirador newObject() { return new BossAtirador(); } };
+        poolBossInvocador = new Pool<BossInvocador>() { @Override protected BossInvocador newObject() { return new BossInvocador(); } };
+        poolMinions = new Pool<Minion>() { @Override protected Minion newObject() { return new Minion(); } };
 
-        poolAtiradores = new Pool<InimigoAtirador>() {
-            @Override
-            protected InimigoAtirador newObject() {
-                return new InimigoAtirador();
-            }
-        };
+        carregarOnda(ondaAtual);
+    }
 
-        poolEspiral = new Pool<InimigoEspiral>() {
-            @Override
-            protected InimigoEspiral newObject() {
-                return new InimigoEspiral();
-            }
-        };
-
-        poolTiros = new Pool<Tiro>() {
-            @Override
-            protected Tiro newObject() {
-                return new Tiro();
-            }
-        };
-
-        poolTirosInimigos = new Pool<TiroInimigo>() {
-            @Override
-            protected TiroInimigo newObject() {
-                return new TiroInimigo();
-            }
-        };
-
-        poolPowerUps = new Pool<ItemPowerUp>() {
-            @Override
-            protected ItemPowerUp newObject() {
-                return new ItemPowerUp();
-            }
-        };
-
-        // NOVO: não carrega a onda aqui. Começamos no MENU e a onda 1
-        // só é carregada quando o jogador aperta ENTER (veja iniciarJogo()).
-        estado = EstadoJogo.MENU;
+    private Texture criarTexturaColorida(Color cor, int width, int height) {
+        Pixmap pix = new Pixmap(width, height, Pixmap.Format.RGBA8888);
+        pix.setColor(cor);
+        pix.fill();
+        Texture tex = new Texture(pix);
+        pix.dispose();
+        return tex;
     }
 
     @Override
     public void render() {
-        float delta = Gdx.graphics.getDeltaTime();
-
-        // Limpa a tela (feito sempre, em qualquer estado)
-        Gdx.gl.glClearColor(0.05f, 0.05f, 0.1f, 1);
+        Gdx.gl.glClearColor(0, 0, 0, 1);
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
 
-        // === A MÁQUINA DE ESTADOS ===
-        // Cada estado decide o que atualizar e o que desenhar.
-        switch (estado) {
-            case MENU:
-                atualizarMenu();
-                desenharMenu();
-                break;
+        float delta = Gdx.graphics.getDeltaTime();
 
-            case JOGANDO:
-                atualizarJogo(delta);
-                desenharJogo();
-                break;
-
-            case PAUSADO:
-                atualizarPausa();
-                desenharJogo();     // desenha o jogo "congelado" por trás
-                desenharPausa();    // e por cima desenha o aviso de pausa
-                break;
-
-            case GAME_OVER:
-                atualizarGameOver();
-                desenharJogo();     // mostra a cena final por trás
-                desenharGameOver(); // e por cima o texto de game over
-                break;
+        if (estado == EstadoJogo.JOGANDO) {
+            atualizarJogo(delta);
+        } else if (estado == EstadoJogo.GAME_OVER) {
+            if (Gdx.input.isKeyJustPressed(Input.Keys.ENTER)) {
+                resetarValores();
+            }
         }
-    }
 
-    // =========================================================
-    // ===================== ESTADO: MENU =====================
-    // =========================================================
-
-    private void atualizarMenu() {
-        if (Gdx.input.isKeyJustPressed(Input.Keys.ENTER)) {
-            iniciarJogo();
-        }
-    }
-
-    private void desenharMenu() {
         batch.begin();
-        batch.draw(imgFundo, 0, 0, Gdx.graphics.getWidth(), Gdx.graphics.getHeight());
-
-        font.draw(batch, "=== NAVINHA ===", Gdx.graphics.getWidth() / 2f - 70, Gdx.graphics.getHeight() / 2f + 40);
-        font.draw(batch, "Pressione ENTER para comecar", Gdx.graphics.getWidth() / 2f - 115, Gdx.graphics.getHeight() / 2f);
-        font.draw(batch, "Setas ou A/D para mover, ESPACO para atirar", Gdx.graphics.getWidth() / 2f - 160, Gdx.graphics.getHeight() / 2f - 30);
-        font.draw(batch, "P para pausar", Gdx.graphics.getWidth() / 2f - 55, Gdx.graphics.getHeight() / 2f - 55);
-
+        desenharJogo(batch);
         batch.end();
     }
 
-    // =========================================================
-    // ==================== ESTADO: JOGANDO ====================
-    // =========================================================
-
     private void atualizarJogo(float delta) {
-
-        // Tecla de pausa. Pode trocar Input.Keys.P por ESCAPE se preferir.
-        if (Gdx.input.isKeyJustPressed(Input.Keys.P)) {
-            estado = EstadoJogo.PAUSADO;
-            return; // não processa mais nada neste frame, já entra pausado
-        }
-
-        // === ATUALIZAÇÃO DO JOGADOR ===
         jogador.atualizar(delta);
 
-        // Troca de armas para testes (Teclas 1, 2, 3, 4)
-        if (Gdx.input.isKeyJustPressed(Input.Keys.NUM_1)) jogador.tipoArmaAtual = 0; // Normal
-        if (Gdx.input.isKeyJustPressed(Input.Keys.NUM_2)) jogador.tipoArmaAtual = 1; // Spread
-        if (Gdx.input.isKeyJustPressed(Input.Keys.NUM_3)) jogador.tipoArmaAtual = 2; // Homing
-        if (Gdx.input.isKeyJustPressed(Input.Keys.NUM_4)) jogador.tipoArmaAtual = 3; // Burst
+        // === SISTEMA DE TIROS ===
+        tempoTiro += delta;
+        if (tempoTiro >= intervaloTiro && jogador.ativo) {
+            tempoTiro = 0;
+            float centroX = jogador.x + (jogador.largura / 2f) - 3;
 
-        // === LÓGICA DE ATIRAR DO JOGADOR ===
-        tempoParaAtirar += delta;
-
-        float xDoTiro = jogador.x + (jogador.largura / 2f) - 3f;
-        float yDoTiro = jogador.y + jogador.altura;
-
-        // 1. Disparo de Rajada Encadeada (BURST)
-        if (tirosRestantesRajada > 0) {
-            tempoProximoTiroRajada += delta;
-
-            if (tempoProximoTiroRajada >= 0.08f) {
+            if (jogador.tipoArmaAtual == 0) { // Padrão
+                intervaloTiro = 0.3f;
+                tirosRajada = 0;
                 Tiro t = poolTiros.obtain();
-                t.init(xDoTiro, yDoTiro);
+                t.init(imgTiro, centroX, jogador.y + jogador.altura, 0, 600);
                 listaTiros.add(t);
 
-                tirosRestantesRajada--;
-                tempoProximoTiroRajada = 0;
+            } else if (jogador.tipoArmaAtual == 1) { // Spread (3 Tiros em leque)
+                intervaloTiro = 0.35f;
+                tirosRajada = 0;
+                float[] angulosX = {-100f, 0f, 100f};
+                for (float vx : angulosX) {
+                    Tiro t = poolTiros.obtain();
+                    t.init(imgTiro, centroX, jogador.y + jogador.altura, vx, 550);
+                    listaTiros.add(t);
+                }
+
+            } else if (jogador.tipoArmaAtual == 2) { // Homing (1 tiro com cadência menor)
+                intervaloTiro = 0.5f; // Cadência reduzida (intervalo maior)
+                tirosRajada = 0;
+                TiroHoming th = poolTirosHoming.obtain();
+                th.init(imgTiroHoming, centroX, jogador.y + jogador.altura);
+                listaTirosHoming.add(th);
+
+            } else if (jogador.tipoArmaAtual == 3) { // Burst (Rajada "PAPAPA - pausa")
+                Tiro t = poolTiros.obtain();
+                t.init(imgTiro, centroX, jogador.y + jogador.altura, 0, 800);
+                listaTiros.add(t);
+
+                tirosRajada++;
+                if (tirosRajada >= 3) {
+                    intervaloTiro = 0.5f;
+                    tirosRajada = 0;
+                } else {
+                    intervaloTiro = 0.08f;
+                }
             }
-        }
-
-        // 2. Disparo Manual ao apertar ESPAÇO
-        // Define um intervalo maior de pausa se a arma atual for o Burst (ex: 0.8 segundos de pausa)
-        float cooldownAtual = (jogador.tipoArmaAtual == 3) ? 0.8f : 0.35f;
-
-// 2. Disparo Manual ao apertar ESPAÇO
-        if (Gdx.input.isKeyPressed(Input.Keys.SPACE) && tempoParaAtirar >= cooldownAtual && tirosRestantesRajada == 0) {
-
-            if (jogador.tipoArmaAtual == 0) { // NORMAL
-                Tiro t = poolTiros.obtain();
-                t.init(xDoTiro, yDoTiro);
-                listaTiros.add(t);
-
-            } else if (jogador.tipoArmaAtual == 1) { // SPREAD
-                Tiro t1 = poolTiros.obtain(); t1.init(xDoTiro, yDoTiro);
-
-                Tiro t2 = poolTiros.obtain(); t2.init(xDoTiro, yDoTiro);
-                t2.velocidadeX = -120;
-
-                Tiro t3 = poolTiros.obtain(); t3.init(xDoTiro, yDoTiro);
-                t3.velocidadeX = 120;
-
-                listaTiros.add(t1); listaTiros.add(t2); listaTiros.add(t3);
-
-            } else if (jogador.tipoArmaAtual == 2) { // HOMING
-                Tiro t = poolTiros.obtain();
-                t.init(xDoTiro, yDoTiro);
-                t.ehHoming = true;
-                listaTiros.add(t);
-
-            } else if (jogador.tipoArmaAtual == 3) { // BURST
-                tirosRestantesRajada = 3;
-                tempoProximoTiroRajada = 0.35f;
-            }
-
-            tempoParaAtirar = 0;
         }
 
         // === ATUALIZAR TIROS DO JOGADOR ===
         Iterator<Tiro> itTiro = listaTiros.iterator();
         while (itTiro.hasNext()) {
             Tiro t = itTiro.next();
-            t.atualizar(delta, listaInimigos);
+            t.atualizar(delta);
             if (!t.ativo) {
                 itTiro.remove();
                 poolTiros.free(t);
             }
         }
 
-        // === ATUALIZAR TIROS DOS INIMIGOS ===
+        // === ATUALIZAR TIROS HOMING ===
+        Iterator<TiroHoming> itHoming = listaTirosHoming.iterator();
+        while (itHoming.hasNext()) {
+            TiroHoming th = itHoming.next();
+            th.atualizar(delta, listaInimigos);
+
+            for (Inimigo ini : listaInimigos) {
+                if (th.ativo && ini.ativo && th.getBounds().overlaps(ini.getBounds())) {
+                    th.ativo = false;
+
+                    if (ini instanceof BossInvocador) {
+                        BossInvocador bossInv = (BossInvocador) ini;
+                        bossInv.tomarDano(1);
+                        if (!bossInv.ativo) { pontuacao += 2000; tentarDropPowerUp(ini.x, ini.y); }
+                    } else if (ini instanceof BossAtirador) {
+                        BossAtirador boss = (BossAtirador) ini;
+                        boss.tomarDano(1);
+                        if (!boss.ativo) { pontuacao += 1000; tentarDropPowerUp(ini.x, ini.y); }
+                    } else if (ini instanceof InimigoTank) {
+                        InimigoTank tank = (InimigoTank) ini;
+                        tank.tomarDano(1);
+                        if (!tank.ativo) { pontuacao += 300; tentarDropPowerUp(ini.x, ini.y); }
+                    } else {
+                        ini.ativo = false;
+                        pontuacao += 100;
+                        tentarDropPowerUp(ini.x, ini.y);
+                    }
+                }
+            }
+
+            if (!th.ativo) {
+                itHoming.remove();
+                poolTirosHoming.free(th);
+            }
+        }
+
+        // === ATUALIZAR TIROS INIMIGOS ===
         Iterator<TiroInimigo> itTiroInimigo = listaTirosInimigos.iterator();
         while (itTiroInimigo.hasNext()) {
             TiroInimigo ti = itTiroInimigo.next();
             ti.atualizar(delta);
 
             if (ti.ativo && ti.getBounds().overlaps(jogador.getBounds())) {
-                ti.ativo = false;
-                jogador.vidas--;
+                if (!jogador.tomarDano()) {
+                    ti.ativo = false;
+                }
+                if (!jogador.ativo) estado = EstadoJogo.GAME_OVER;
             }
 
             if (!ti.ativo) {
@@ -287,49 +255,16 @@ public class MeuJogo extends ApplicationAdapter {
             }
         }
 
-        // === ATUALIZAR INIMIGOS ===
-        Iterator<Inimigo> itInimigo = listaInimigos.iterator();
-        while (itInimigo.hasNext()) {
-            Inimigo ini = itInimigo.next();
-
-            ini.atualizar(delta, listaTirosInimigos, poolTirosInimigos);
-
-            for (Tiro t : listaTiros) {
-                if (t.ativo && ini.ativo && t.getBounds().overlaps(ini.getBounds())) {
-                    t.ativo = false;
-                    ini.ativo = false;
-                    pontuacao += 100;
-
-                    // Chance do inimigo abatido soltar um power-up no lugar onde morreu
-                    tentarDropPowerUp(ini.x + ini.largura / 2f, ini.y);
-                }
-            }
-
-            if (ini.ativo && ini.getBounds().overlaps(jogador.getBounds())) {
-                ini.ativo = false;
-                jogador.vidas--;
-            }
-
-            if (!ini.ativo) {
-                itInimigo.remove();
-                if (ini instanceof InimigoEspiral) {
-                    poolEspiral.free((InimigoEspiral) ini);
-                } else if (ini instanceof InimigoAtirador) {
-                    poolAtiradores.free((InimigoAtirador) ini);
-                } else {
-                    poolInimigos.free(ini);
-                }
-            }
-        }
-
-        // === ATUALIZAR POWER-UPS (caindo + coleta pelo jogador) ===
+        // === ATUALIZAR POWER-UPS ===
         Iterator<ItemPowerUp> itPowerUp = listaPowerUps.iterator();
         while (itPowerUp.hasNext()) {
             ItemPowerUp p = itPowerUp.next();
             p.atualizar(delta);
 
             if (p.ativo && p.getBounds().overlaps(jogador.getBounds())) {
-                jogador.tipoArmaAtual = p.tipoPoder; // 1=Spread, 2=Homing, 3=Burst (mesmos códigos da Nave)
+                jogador.tipoArmaAtual = p.tipoPoder;
+                tirosRajada = 0;
+                pontuacao += 50;
                 p.ativo = false;
             }
 
@@ -339,130 +274,305 @@ public class MeuJogo extends ApplicationAdapter {
             }
         }
 
-        // Verifica se as vidas acabaram -> muda para o estado GAME_OVER
-        if (jogador.vidas <= 0) {
-            estado = EstadoJogo.GAME_OVER;
-            return;
+        // === DIFICULDADE DINÂMICA ===
+        // Quanto menos inimigos restam na tela, mais rápido eles ficam.
+        // Começa a acelerar a partir de 8 inimigos vivos e vai crescendo até
+        // um teto de 2.5x de velocidade quando sobra só 1.
+        float multiplicadorDificuldade = 1.0f;
+        int inimigosVivos = listaInimigos.size();
+        if (inimigosVivos > 0) {
+            int limiteBase = 8;
+            int faltando = Math.max(0, limiteBase - inimigosVivos);
+            multiplicadorDificuldade = 1.0f + (faltando * 0.2f);
+            multiplicadorDificuldade = Math.min(multiplicadorDificuldade, 2.5f);
         }
 
-        // === PROGRESSÃO DE ONDAS ===
+        // === CONTROLE DE BORDAS ESTILO SPACE INVADERS ===
+        boolean inverterDirecao = false;
+        for (Inimigo ini : listaInimigos) {
+            // Ignora InimigoEspiral e Minion, que têm movimento próprio (mergulho)
+            if (ini.ativo && !(ini instanceof BossAtirador) && !(ini instanceof BossInvocador) && !(ini instanceof InimigoEspiral) && !(ini instanceof Minion)) {
+                if ((direcaoInimigosX > 0 && ini.x + ini.largura >= Gdx.graphics.getWidth() - 10) ||
+                    (direcaoInimigosX < 0 && ini.x <= 10)) {
+                    inverterDirecao = true;
+                    break;
+                }
+            }
+        }
+
+        if (inverterDirecao) {
+            direcaoInimigosX *= -1f;
+            for (Inimigo ini : listaInimigos) {
+                // Ignora InimigoEspiral e Minion, que têm movimento próprio (mergulho)
+                if (!(ini instanceof BossAtirador) && !(ini instanceof BossInvocador) && !(ini instanceof InimigoEspiral) && !(ini instanceof Minion)) {
+                    ini.dirX = direcaoInimigosX;
+                    ini.y -= 25f; // Desce o degrau
+                    ini.x += direcaoInimigosX * 6f; // Afasta da borda para não travar o loop
+                }
+            }
+        }
+
+        // === ATUALIZAR INIMIGOS ===
+        ArrayList<Inimigo> novosInimigos = new ArrayList<>();
+
+        Iterator<Inimigo> itInimigo = listaInimigos.iterator();
+        while (itInimigo.hasNext()) {
+            Inimigo ini = itInimigo.next();
+
+            float velocidadeOriginal = ini.velocidade;
+            ini.velocidade = velocidadeOriginal * multiplicadorDificuldade;
+
+            if (ini instanceof BossInvocador) {
+                ((BossInvocador) ini).atualizarBoss(delta, novosInimigos, poolMinions, imgInimigo);
+            } else {
+                ini.atualizar(delta, listaTirosInimigos, poolTirosInimigos);
+            }
+
+            ini.velocidade = velocidadeOriginal;
+
+            // Colisão Tiro Normal -> Inimigo
+            for (Tiro t : listaTiros) {
+                if (t.ativo && ini.ativo && t.getBounds().overlaps(ini.getBounds())) {
+                    t.ativo = false;
+
+                    if (ini instanceof BossInvocador) {
+                        BossInvocador bossInv = (BossInvocador) ini;
+                        bossInv.tomarDano(1);
+                        if (!bossInv.ativo) {
+                            pontuacao += 2000;
+                            tentarDropPowerUp(ini.x, ini.y);
+                        }
+                    } else if (ini instanceof BossAtirador) {
+                        BossAtirador boss = (BossAtirador) ini;
+                        boss.tomarDano(1);
+                        if (!boss.ativo) {
+                            pontuacao += 1000;
+                            tentarDropPowerUp(ini.x, ini.y);
+                        }
+                    } else if (ini instanceof InimigoTank) {
+                        InimigoTank tank = (InimigoTank) ini;
+                        tank.tomarDano(1);
+                        if (!tank.ativo) {
+                            pontuacao += 300;
+                            tentarDropPowerUp(ini.x, ini.y);
+                        }
+                    } else {
+                        ini.ativo = false;
+                        pontuacao += 100;
+                        tentarDropPowerUp(ini.x, ini.y);
+                    }
+                }
+            }
+
+            // Colisão Inimigo -> Nave (Kamikaze)
+            if (ini.ativo && ini.getBounds().overlaps(jogador.getBounds())) {
+                if (jogador.tomarDano()) {
+                    estado = EstadoJogo.GAME_OVER;
+                }
+            }
+
+            if (!ini.ativo) {
+                itInimigo.remove();
+                if (ini instanceof BossInvocador) {
+                    poolBossInvocador.free((BossInvocador) ini);
+                } else if (ini instanceof Minion) {
+                    poolMinions.free((Minion) ini);
+                } else if (ini instanceof BossAtirador) {
+                    poolBossAtirador.free((BossAtirador) ini);
+                } else if (ini instanceof InimigoTank) {
+                    poolTanks.free((InimigoTank) ini);
+                } else if (ini instanceof InimigoEspiral) {
+                    poolEspiral.free((InimigoEspiral) ini);
+                } else if (ini instanceof InimigoAtirador) {
+                    poolAtiradores.free((InimigoAtirador) ini);
+                } else {
+                    poolInimigos.free(ini);
+                }
+            }
+        }
+
+        listaInimigos.addAll(novosInimigos);
+
         if (listaInimigos.isEmpty()) {
             ondaAtual++;
             carregarOnda(ondaAtual);
+            pontuacao += 500;
         }
     }
 
-    private void desenharJogo() {
-        batch.begin();
-
-        batch.draw(imgFundo, 0, 0, Gdx.graphics.getWidth(), Gdx.graphics.getHeight());
-
-        jogador.desenhar(batch);
-
-        for (Inimigo ini : listaInimigos) {
-            ini.desenhar(batch);
-        }
-
-        for (Tiro t : listaTiros) {
-            t.desenhar(batch);
-        }
-
-        for (TiroInimigo ti : listaTirosInimigos) {
-            ti.desenhar(batch);
-        }
-
-        for (ItemPowerUp p : listaPowerUps) {
-            p.desenhar(batch);
-        }
-
-        // HUD (Textos)
-        font.draw(batch, "Vidas: " + jogador.vidas, 20, Gdx.graphics.getHeight() - 20);
-        font.draw(batch, "Pontos: " + pontuacao, 20, Gdx.graphics.getHeight() - 45);
-        font.draw(batch, "Arma: " + nomeArma(jogador.tipoArmaAtual), 20, Gdx.graphics.getHeight() - 70);
-        font.draw(batch, "Onda: " + ondaAtual, Gdx.graphics.getWidth() - 100, Gdx.graphics.getHeight() - 20);
-        font.draw(batch, "Inimigos: " + listaInimigos.size(), Gdx.graphics.getWidth() - 130, Gdx.graphics.getHeight() - 45);
-
-        batch.end();
-    }
-
-    // Sorteia se um power-up vai cair e, se sim, de qual tipo (1=Spread, 2=Homing, 3=Burst)
     private void tentarDropPowerUp(float x, float y) {
-        if (Math.random() > CHANCE_DROP_POWERUP) return;
-
-        int tipo = 1 + (int) (Math.random() * 3); // gera 1, 2 ou 3
-
-        ItemPowerUp p = poolPowerUps.obtain();
-        p.init(x - 7.5f, y, tipo); // -7.5 pra centralizar (largura do item é 15)
-        listaPowerUps.add(p);
+        if (MathUtils.random(1, 100) <= 10) {
+            ItemPowerUp p = poolPowerUps.obtain();
+            int tipoAleatorio = MathUtils.random(1, 3);
+            p.init(x, y, tipoAleatorio);
+            listaPowerUps.add(p);
+        }
     }
 
-    // Nome amigável da arma atual, só pra mostrar no HUD
+    private void carregarOnda(int onda) {
+        direcaoInimigosX = 1f; // Reseta a direção para a direita a cada nova onda
+
+        if (onda % 10 == 0) {
+            criarOndaBossInvocador();
+        } else if (onda % 5 == 0) {
+            criarOndaBossAtirador();
+        } else {
+            int tipoOnda = (onda - 1) % 4;
+            switch (tipoOnda) {
+                case 0: criarOndaGrade(); break;
+                case 1: criarOndaLinha(); break;
+                case 2: criarOndaVInvertido(); break;
+                case 3: criarOndaEspiral(); break;
+            }
+        }
+    }
+
+    private void criarOndaGrade() {
+        int linhas = 3;
+        int colunas = 5;
+        float espacamentoX = 60, espacamentoY = 50;
+        float inicioX = (Gdx.graphics.getWidth() - (colunas - 1) * espacamentoX) / 2f;
+        float inicioY = Gdx.graphics.getHeight() - 100;
+
+        for (int i = 0; i < linhas; i++) {
+            for (int j = 0; j < colunas; j++) {
+                if (i == linhas - 1) {
+                    InimigoAtirador atirador = poolAtiradores.obtain();
+                    atirador.init(imgInimigoAtirador, inicioX + j * espacamentoX, inicioY + i * espacamentoY);
+                    listaInimigos.add(atirador);
+                } else {
+                    Inimigo ini = poolInimigos.obtain();
+                    ini.init(imgInimigo, inicioX + j * espacamentoX, inicioY + i * espacamentoY);
+                    listaInimigos.add(ini);
+                }
+            }
+        }
+    }
+
+    private void criarOndaLinha() {
+        int quantidade = 7;
+        float espacamentoX = 50;
+        float inicioX = (Gdx.graphics.getWidth() - (quantidade - 1) * espacamentoX) / 2f;
+        float topoY = Gdx.graphics.getHeight() - 80;
+
+        for (int i = 0; i < quantidade; i++) {
+            Inimigo ini = poolInimigos.obtain();
+            ini.init(imgInimigo, inicioX + i * espacamentoX, topoY);
+            listaInimigos.add(ini);
+        }
+    }
+
+    private void criarOndaVInvertido() {
+        int quantidadeLado = 5;
+        float centroX = Gdx.graphics.getWidth() / 2f - 16;
+        float topoY = Gdx.graphics.getHeight() - 20; // Alterado
+
+        InimigoTank bossTank = poolTanks.obtain();
+        bossTank.init(imgInimigo, centroX - (imgInimigo.getWidth() / 3f * 1.5f) / 2f, topoY);
+        listaInimigos.add(bossTank);
+
+        for (int i = 1; i <= quantidadeLado; i++) {
+            float offsetY = i * 28; // Alterado
+            float offsetX = i * 35; // Alterado
+
+            Inimigo esq = poolInimigos.obtain();
+            esq.init(imgInimigo, centroX - offsetX, topoY - offsetY);
+            listaInimigos.add(esq);
+
+            Inimigo dir = poolInimigos.obtain();
+            dir.init(imgInimigo, centroX + offsetX, topoY - offsetY);
+            listaInimigos.add(dir);
+        }
+    }
+
+    private void criarOndaEspiral() {
+        int quantidade = 8;
+        float inicioX = Gdx.graphics.getWidth() / 2f - 16;
+        float inicioY = Gdx.graphics.getHeight() + 50; // Alterado
+
+        for (int i = 0; i < quantidade; i++) {
+            InimigoEspiral esp = poolEspiral.obtain();
+            esp.init(imgInimigo, inicioX, inicioY + (i * 60)); // Alterado (somando para empilhar pra cima)
+            listaInimigos.add(esp);
+        }
+    }
+
+    private void criarOndaBossAtirador() {
+        BossAtirador boss = poolBossAtirador.obtain();
+        float centroX = Gdx.graphics.getWidth() / 2f - 35;
+        float topoY = Gdx.graphics.getHeight() - 100;
+        boss.init(imgInimigoAtirador, centroX, topoY);
+        listaInimigos.add(boss);
+    }
+
+    private void criarOndaBossInvocador() {
+        BossInvocador boss = poolBossInvocador.obtain();
+        float centroX = Gdx.graphics.getWidth() / 2f - 40;
+        float topoY = Gdx.graphics.getHeight() - 120;
+        boss.init(imgInimigo, centroX, topoY);
+        listaInimigos.add(boss);
+    }
+
+    private void desenharJogo(SpriteBatch batch) {
+        for (Tiro t : listaTiros) t.desenhar(batch);
+        for (TiroHoming th : listaTirosHoming) th.desenhar(batch);
+        for (TiroInimigo ti : listaTirosInimigos) ti.desenhar(batch);
+        for (ItemPowerUp p : listaPowerUps) p.desenhar(batch);
+        for (Inimigo ini : listaInimigos) ini.desenhar(batch);
+        if (jogador.ativo) jogador.desenhar(batch);
+
+        // HUD Superior
+        float alturaHud = 50;
+        float topoY = Gdx.graphics.getHeight();
+
+        batch.draw(imgFundoHud, 0, topoY - alturaHud, Gdx.graphics.getWidth(), alturaHud);
+        batch.draw(imgLinhaHud, 0, topoY - alturaHud - 2, Gdx.graphics.getWidth(), 2);
+
+        float textoY = topoY - 18;
+        font.draw(batch, "VIDAS: " + jogador.vidas, 20, textoY);
+        font.draw(batch, "PONTOS: " + pontuacao, 140, textoY);
+        font.draw(batch, "ARMA: " + nomeArma(jogador.tipoArmaAtual), 300, textoY);
+        font.draw(batch, "ONDA: " + ondaAtual, Gdx.graphics.getWidth() - 210, textoY);
+        font.draw(batch, "INIMIGOS: " + listaInimigos.size(), Gdx.graphics.getWidth() - 110, textoY);
+
+        if (estado == EstadoJogo.GAME_OVER) {
+            font.draw(batch, "GAME OVER! APERTE ENTER PARA REINICIAR",
+                Gdx.graphics.getWidth() / 2f - 180, Gdx.graphics.getHeight() / 2f);
+        }
+    }
+
     private String nomeArma(int tipo) {
         switch (tipo) {
-            case 1:  return "SPREAD";
-            case 2:  return "HOMING";
-            case 3:  return "BURST";
-            default: return "NORMAL";
+            case 1: return "SPREAD";
+            case 2: return "HOMING";
+            case 3: return "BURST";
+            default: return "PADRAO";
         }
     }
 
-    // =========================================================
-    // ==================== ESTADO: PAUSADO ====================
-    // =========================================================
-
-    private void atualizarPausa() {
-        // Aperta P de novo (ou ESC) para voltar a jogar
-        if (Gdx.input.isKeyJustPressed(Input.Keys.P) || Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
-            estado = EstadoJogo.JOGANDO;
-        }
-    }
-
-    private void desenharPausa() {
-        batch.begin();
-        font.draw(batch, "=== PAUSADO ===", Gdx.graphics.getWidth() / 2f - 65, Gdx.graphics.getHeight() / 2f + 20);
-        font.draw(batch, "Pressione P para continuar", Gdx.graphics.getWidth() / 2f - 105, Gdx.graphics.getHeight() / 2f - 10);
-        batch.end();
-    }
-
-    // =========================================================
-    // =================== ESTADO: GAME_OVER ===================
-    // =========================================================
-
-    private void atualizarGameOver() {
-        if (Gdx.input.isKeyJustPressed(Input.Keys.ENTER)) {
-            voltarParaMenu();
-        }
-    }
-
-    private void desenharGameOver() {
-        batch.begin();
-        font.draw(batch, "=== GAME OVER ===", Gdx.graphics.getWidth() / 2f - 75, Gdx.graphics.getHeight() / 2f + 40);
-        font.draw(batch, "Pontuacao Final: " + pontuacao, Gdx.graphics.getWidth() / 2f - 80, Gdx.graphics.getHeight() / 2f);
-        font.draw(batch, "Pressione ENTER para voltar ao menu", Gdx.graphics.getWidth() / 2f - 140, Gdx.graphics.getHeight() / 2f - 45);
-        batch.end();
-    }
-
-    // =========================================================
-    // ================= TRANSIÇÕES DE ESTADO ==================
-    // =========================================================
-
-    // Chamado ao sair do MENU (ENTER) para começar uma partida nova
-    private void iniciarJogo() {
-        resetarValores();
-        estado = EstadoJogo.JOGANDO;
-    }
-
-    // Chamado ao sair do GAME_OVER (ENTER) para voltar à tela inicial
-    private void voltarParaMenu() {
-        resetarValores();
-        estado = EstadoJogo.MENU;
-    }
-
-    // Zera pontuação, vidas, onda e devolve tudo para os pools.
-    // Usado tanto ao iniciar uma partida quanto ao voltar pro menu.
     private void resetarValores() {
+        estado = EstadoJogo.JOGANDO;
+        pontuacao = 0;
+        ondaAtual = 1;
+        tirosRajada = 0;
+        direcaoInimigosX = 1f;
+        jogador.vidas = 3;
+        jogador.ativo = true;
+        jogador.x = Gdx.graphics.getWidth() / 2f - imgNave.getWidth() / 4f;
+        jogador.y = 50;
+        jogador.tipoArmaAtual = 0;
+        jogador.tempoInvulneravel = Nave.DURACAO_INVULNERAVEL;
+
         for (Inimigo ini : listaInimigos) {
-            if (ini instanceof InimigoEspiral) {
+            if (ini instanceof BossInvocador) {
+                poolBossInvocador.free((BossInvocador) ini);
+            } else if (ini instanceof Minion) {
+                poolMinions.free((Minion) ini);
+            } else if (ini instanceof BossAtirador) {
+                poolBossAtirador.free((BossAtirador) ini);
+            } else if (ini instanceof InimigoTank) {
+                poolTanks.free((InimigoTank) ini);
+            } else if (ini instanceof InimigoEspiral) {
                 poolEspiral.free((InimigoEspiral) ini);
             } else if (ini instanceof InimigoAtirador) {
                 poolAtiradores.free((InimigoAtirador) ini);
@@ -472,138 +582,32 @@ public class MeuJogo extends ApplicationAdapter {
         }
         listaInimigos.clear();
 
-        for (Tiro t : listaTiros) {
-            poolTiros.free(t);
-        }
+        for (Tiro t : listaTiros) poolTiros.free(t);
         listaTiros.clear();
 
-        for (TiroInimigo ti : listaTirosInimigos) {
-            poolTirosInimigos.free(ti);
-        }
+        for (TiroHoming th : listaTirosHoming) poolTirosHoming.free(th);
+        listaTirosHoming.clear();
+
+        for (TiroInimigo ti : listaTirosInimigos) poolTirosInimigos.free(ti);
         listaTirosInimigos.clear();
 
-        for (ItemPowerUp p : listaPowerUps) {
-            poolPowerUps.free(p);
-        }
+        for (ItemPowerUp p : listaPowerUps) poolPowerUps.free(p);
         listaPowerUps.clear();
 
-        pontuacao = 0;
-        ondaAtual = 1;
-        jogador.vidas = 3;
-        jogador.tipoArmaAtual = 0; // volta pra arma NORMAL
-        jogador.x = Gdx.graphics.getWidth() / 2f - (jogador.largura / 2f);
-
         carregarOnda(ondaAtual);
-    }
-
-    // === GERENCIADOR DE ONDAS ===
-    private void carregarOnda(int onda) {
-        int tipoOnda = (onda - 1) % 4;
-        switch (tipoOnda) {
-            case 0:
-                criarOndaGrade();
-                break;
-            case 1:
-                criarOndaLinha();
-                break;
-            case 2:
-                criarOndaVInvertido();
-                break;
-            case 3:
-                criarOndaEspiral();
-                break;
-        }
-    }
-
-    private void criarOndaGrade() {
-        int colunas = 8, fileiras = 4;
-        float espacamentoX = 50, espacamentoY = 40;
-        float margemEsquerda = (Gdx.graphics.getWidth() - (colunas * espacamentoX)) / 2f;
-        float topoTela = Gdx.graphics.getHeight() + 60;
-
-        for (int f = 0; f < fileiras; f++) {
-            for (int c = 0; c < colunas; c++) {
-                float x = margemEsquerda + (c * espacamentoX);
-                float y = topoTela + (f * espacamentoY);
-
-                if (f == 0) {
-                    InimigoAtirador atirador = poolAtiradores.obtain();
-                    atirador.init(imgInimigoAtirador, x, y);
-                    listaInimigos.add(atirador);
-                } else {
-                    Inimigo comum = poolInimigos.obtain();
-                    comum.init(imgInimigo, x, y);
-                    listaInimigos.add(comum);
-                }
-            }
-        }
-    }
-
-    private void criarOndaLinha() {
-        int quantidade = 10;
-        float espacamento = 45;
-        float margemEsquerda = (Gdx.graphics.getWidth() - (quantidade * espacamento)) / 2f;
-        float y = Gdx.graphics.getHeight() + 50;
-
-        for (int i = 0; i < quantidade; i++) {
-            float x = margemEsquerda + (i * espacamento);
-            if (i % 2 == 0) {
-                InimigoAtirador atirador = poolAtiradores.obtain();
-                atirador.init(imgInimigoAtirador, x, y);
-                listaInimigos.add(atirador);
-            } else {
-                Inimigo comum = poolInimigos.obtain();
-                comum.init(imgInimigo, x, y);
-                listaInimigos.add(comum);
-            }
-        }
-    }
-
-    private void criarOndaVInvertido() {
-        int quantidadeLado = 5;
-        float centroX = Gdx.graphics.getWidth() / 2f - 16;
-        float topoY = Gdx.graphics.getHeight() + 80;
-
-        InimigoAtirador pico = poolAtiradores.obtain();
-        pico.init(imgInimigoAtirador, centroX, topoY);
-        listaInimigos.add(pico);
-
-        for (int i = 1; i <= quantidadeLado; i++) {
-            float offsetY = i * 40, offsetX = i * 45;
-
-            Inimigo esq = poolInimigos.obtain();
-            esq.init(imgInimigo, centroX - offsetX, topoY + offsetY);
-            listaInimigos.add(esq);
-
-            Inimigo dir = poolInimigos.obtain();
-            dir.init(imgInimigo, centroX + offsetX, topoY + offsetY);
-            listaInimigos.add(dir);
-        }
-    }
-
-    private void criarOndaEspiral() {
-        int quantidade = 10;
-        float centroX = Gdx.graphics.getWidth() / 2f - 16;
-        float startY = Gdx.graphics.getHeight() + 30;
-
-        for (int i = 0; i < quantidade; i++) {
-            float y = startY + (i * 25);
-            InimigoEspiral espira = poolEspiral.obtain();
-            espira.init(imgInimigo, centroX, y, i * 0.7f);
-            listaInimigos.add(espira);
-        }
     }
 
     @Override
     public void dispose() {
         batch.dispose();
-        imgFundo.dispose();
+        font.dispose();
         imgNave.dispose();
         imgInimigo.dispose();
         imgInimigoAtirador.dispose();
-
-        if (font != null) {
-            font.dispose();
-        }
+        imgTiro.dispose();
+        imgTiroInimigo.dispose();
+        if (imgTiroHoming != null) imgTiroHoming.dispose();
+        if (imgFundoHud != null) imgFundoHud.dispose();
+        if (imgLinhaHud != null) imgLinhaHud.dispose();
     }
 }

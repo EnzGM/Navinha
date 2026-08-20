@@ -1,5 +1,6 @@
 package com.meujogo.navinha.entidades;
 
+import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.Pixmap;
 import com.badlogic.gdx.graphics.Texture;
@@ -12,17 +13,53 @@ public class TiroInimigo extends Entidade {
     // economizando muita memória e processamento.
     private static Texture texturaDesenhada;
 
+    // NOVO: velocidade horizontal, usada para criar leques/rajadas de projéteis (ex: BossAtirador).
+    // A velocidade vertical continua sendo o campo "velocidade" herdado de Entidade.
+    public float velX = 0;
+
     // Construtor vazio necessário para o sistema de Pooling funcionar[cite: 10]
     public TiroInimigo() {}
 
     // O método de inicialização quando um inimigo dispara o tiro[cite: 10]
     public void init(float x, float y) {
+        // Tamanho padrão 4x12, velocidade 350 (desce a tela)[cite: 10].
+        init(x, y, 4, 12, 350);
+    }
+
+    // CORREÇÃO: overload que aceita tamanho e velocidade customizados.
+    // É esta assinatura que InimigoAtirador tenta chamar (via o init de 6 argumentos,
+    // Texture incluído — veja abaixo). Tiro reto, sem componente horizontal.
+    public void init(float x, float y, float largura, float altura, float velocidade) {
+        init(x, y, largura, altura, 0f, velocidade);
+    }
+
+    // NOVO: overload completo, com velocidade horizontal (velX) e vertical (velocidadeY).
+    // Usado pelo BossAtirador para criar leques de projéteis em ângulos diferentes.
+    public void init(float x, float y, float largura, float altura, float velX, float velocidadeY) {
 
         // Chamamos o init SEM TEXTURA da classe pai (Entidade), configurando:
-        // Posição (x,y), Largura=4, Altura=12, Velocidade=350.
-        // O tiro inimigo é pequeno (4x12) e vai para baixo[cite: 10].
-        super.init(x, y, 4, 12, 350);
+        // Posição (x,y), Largura, Altura, Velocidade vertical.
+        // Usamos Math.abs porque atualizar() SEMPRE subtrai a velocidade de y
+        // (y -= velocidade) para descer a tela — se vier negativa, o tiro
+        // sobe em vez de descer.
+        super.init(x, y, largura, altura, Math.abs(velocidadeY));
+        this.velX = velX;
 
+        criarTexturaSeNecessario();
+    }
+
+    // CORREÇÃO: InimigoAtirador/BossAtirador chamam ti.init(imagem, x, y, largura, altura, velocidade).
+    // Sem este overload, a chamada caía no init(Texture,...) genérico da classe-mãe Entidade,
+    // que guardava a imagem do inimigo em vez de usar a textura procedural e NUNCA criava
+    // texturaDesenhada — por isso os tiros existiam mas eram invisíveis (e subiam ao invés
+    // de descer, por causa do sinal da velocidade).
+    @Override
+    public void init(Texture imagem, float x, float y, float largura, float altura, float velocidade) {
+        // Ignoramos a imagem recebida: o tiro inimigo sempre usa a textura procedural laranja.
+        init(x, y, largura, altura, velocidade);
+    }
+
+    private void criarTexturaSeNecessario() {
         // Se a textura via código ainda NÃO foi gerada (é o primeiro tiro inimigo do jogo), nós criamos ela.
         if (texturaDesenhada == null) {
 
@@ -48,14 +85,23 @@ public class TiroInimigo extends Entidade {
     @Override
     public void atualizar(float delta) {
 
+        // NOVO: move na horizontal também, permitindo tiros em leque/diagonal.
+        this.x += this.velX * delta;
+
         // Diminui o Y do tiro, fazendo ele descer na tela (porque o (0,0) é embaixo no LibGDX)[cite: 10].
         this.y -= this.velocidade * delta;
 
-        // Se o tiro sair completamente por baixo da tela (y for menor que o próprio tamanho da altura negado),
+        // Se o tiro sair completamente por baixo da tela, ou muito para os lados,
         // ele morre e é devolvido pro Pool[cite: 10].
-        if (this.y < -this.altura) {
+        if (this.y < -this.altura || this.x < -50 || this.x > Gdx.graphics.getWidth() + 50) {
             this.ativo = false;
         }
+    }
+
+    @Override
+    public void reset() {
+        super.reset();
+        this.velX = 0;
     }
 
     // Como o init() não salva textura em `this.imagem`, a classe pai não desenharia nada.

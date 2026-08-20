@@ -1,44 +1,41 @@
 package com.meujogo.navinha.entidades;
 
 import com.badlogic.gdx.graphics.Texture;
-import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.utils.Pool;
 import java.util.ArrayList;
 
 public class Inimigo extends Entidade {
 
+    public float dirX = 1f; // 1 = Direita, -1 = Esquerda
+
     public Inimigo() {}
 
     public void init(Texture imagem, float x, float y) {
+        super.init(x, y, 32, 32, 120); // Velocidade horizontal
         this.imagem = imagem;
-        this.x = x;
-        this.y = y;
-        this.largura = imagem.getWidth() / 3f;
-        this.altura = imagem.getHeight() / 3f;
-        this.velocidade = 50;
-        this.ativo = true;
+        this.dirX = 1f;
     }
 
-    @Override
-    public void atualizar(float delta) {
-        // Movimento padrão: apenas desce na tela
-        this.y -= this.velocidade * delta;
+    public void atualizar(float delta, ArrayList<TiroInimigo> listaTirosInimigos, Pool<TiroInimigo> poolTirosInimigos) {
+        if (!ativo) return;
 
-        if (this.y < -this.altura) {
+        // Movimento horizontal
+        this.x += dirX * velocidade * delta;
+
+        // Desativa se passar do fundo da tela
+        if (this.y < -50) {
             this.ativo = false;
         }
     }
 
-    // NOVO: Adicionamos este método aqui!
-    // Inimigos comuns não atiram, então eles só executam o movimento padrão acima.
-    public void atualizar(float delta, ArrayList<TiroInimigo> tirosInimigos, Pool<TiroInimigo> poolTirosInimigos) {
-        atualizar(delta);
+    @Override
+    public void atualizar(float delta) {
+        atualizar(delta, null, null);
     }
 
     @Override
-    public void desenhar(SpriteBatch batch) {
-        if (ativo && imagem != null) {
-            batch.draw(imagem, x, y, largura, altura);
-        }
+    public void reset() {
+        super.reset();
+        this.dirX = 1f;
     }
 }
